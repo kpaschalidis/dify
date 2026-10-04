@@ -359,6 +359,16 @@ whose Agenton layers provide user input. With the MVP provider set, use
 effective prompts are rejected during create-run validation before the run is
 persisted or scheduled.
 
+Plugin tools also deliver URL-bearing `IMAGE` / `IMAGE_LINK` messages and
+JPEG, PNG, WebP, or GIF `BLOB` messages as native image content to the next
+model step. The model must support vision. Image bytes are not stringified
+into tool observations: `ToolReturn.content` carries them in a structured
+user-content part, labeled with the originating tool and call ID. This is
+tool evidence within the current run, not an additional human message or a
+separate vision-model call. Text-only tool observations retain their existing
+behavior. Images use high detail and remain structured in saved history;
+this path does not add image display events to the chat interface.
+
 Agent App callers can use the `dify.user_prompt` layer to send text and images
 in the same model turn. Each image must provide exactly one transport: an
 HTTP(S) `url` or unprefixed Base64 data in `base64_data`. The image is passed as
