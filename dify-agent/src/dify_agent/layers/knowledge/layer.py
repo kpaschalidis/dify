@@ -10,11 +10,12 @@ Agenton session snapshots can resume without repeating unchanged retrievals.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import logging
+from dataclasses import dataclass
 from typing import ClassVar, cast
+from uuid import UUID, uuid4
 
 import httpx
 from pydantic_ai import RunContext, Tool
@@ -336,7 +337,7 @@ class DifyKnowledgeBaseLayer(
                 exc_info=True,
             )
             raise
-        return _format_observation(response, self.config)
+        return _format_source_observation(response, self.config)
 
 
 def _build_caller_context(execution_context: object) -> dict[str, str]:
@@ -466,6 +467,46 @@ def _format_observation(
         lines.append("")
 
     return _truncate_text("\n".join(lines).rstrip(), config.max_observation_chars)
+
+
+def _format_source_observation(response: DifyKnowledgeRetrieveResponse, config: DifyKnowledgeBaseLayerConfig) -> str:
+    """Preserve source handles in the existing persisted tool-result transport."""
+    references = []
+    for result in response.results[:100]:
+        metadata = result.metadata
+        try:
+            dataset_id = str(UUID(metadata.dataset_id or ""))
+            document_id = str(UUID(metadata.document_id or ""))
+        except (ValueError, TypeError, AttributeError):
+            continue
+        segment_id = getattr(metadata, "segment_id", None)
+        if not isinstance(segment_id, str) or not segment_id or len(segment_id) > 128:
+            continue
+        references.append(
+            {
+                "id": str(uuid4()),
+                "kind": "knowledge",
+                "title": (result.title or metadata.document_name or "Untitled")[:500],
+                "excerpt": _truncate_text(
+                    result.content or result.summary or "", min(config.max_result_content_chars, 12000)
+                ),
+                "original": "available"
+                if getattr(metadata, "data_source_type", None) == "upload_file"
+                else "unavailable",
+                "locator": {
+                    "kind": "knowledge",
+                    "datasetId": dataset_id,
+                    "documentId": document_id,
+                    "segmentId": segment_id,
+                },
+            }
+        )
+    text = _format_observation(response, config)
+    if not references:
+        return text
+    return json.dumps(
+        {"text": text, "claimcheck_sources": {"version": 1, "references": references}}, ensure_ascii=False
+    )
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
