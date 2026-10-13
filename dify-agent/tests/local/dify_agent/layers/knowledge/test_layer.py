@@ -16,9 +16,9 @@ from dify_agent.layers.knowledge.client import (
 from dify_agent.layers.knowledge.configs import DifyKnowledgeBaseLayerConfig
 from dify_agent.layers.knowledge.layer import (
     BLANK_QUERY_OBSERVATION,
-    DifyKnowledgeBaseLayer,
     NO_RESULTS_OBSERVATION,
     TEMPORARY_UNAVAILABLE_OBSERVATION,
+    DifyKnowledgeBaseLayer,
 )
 
 
@@ -552,3 +552,33 @@ def test_knowledge_layer_sends_execution_context_and_static_config_to_inner_api(
                 assert result == NO_RESULTS_OBSERVATION
 
     asyncio.run(scenario())
+
+
+def test_source_observation_preserves_handles_without_inventing_pdf_pages():
+    from types import SimpleNamespace
+
+    from dify_agent.layers.knowledge.layer import _format_source_observation
+
+    metadata = SimpleNamespace(
+        dataset_id="22222222-2222-4222-8222-222222222222",
+        document_id="11111111-1111-4111-8111-111111111111",
+        segment_id="segment",
+        dataset_name="Dataset",
+        document_name="Terms",
+        score=0.9,
+        data_source_type="upload_file",
+    )
+    response = DifyKnowledgeRetrieveResponse.model_validate(
+        {"results": [{"metadata": vars(metadata), "title": "Terms", "content": "Text"}]}
+    )
+    metadata = response.results[0].metadata
+    config = SimpleNamespace(max_result_content_chars=1000, max_observation_chars=5000)
+    first = json.loads(_format_source_observation(response, config))
+    second = json.loads(_format_source_observation(response, config))
+    reference = first["claimcheck_sources"]["references"][0]
+    assert reference["locator"]["documentId"] == metadata.document_id
+    assert reference["excerpt"] == "Text"
+    assert "page" not in reference
+    assert reference["id"] != second["claimcheck_sources"]["references"][0]["id"]
+    metadata.document_id = "external title fallback"
+    assert "claimcheck_sources" not in _format_source_observation(response, config)
