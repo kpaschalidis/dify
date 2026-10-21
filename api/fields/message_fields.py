@@ -56,7 +56,7 @@ class MessageListItem(ResponseModel):
     query: str
     answer: str = Field(validation_alias="re_sign_file_url_answer")
     feedback: SimpleFeedback | None = Field(default=None, validation_alias="user_feedback")
-    retriever_resources: list[RetrieverResource]
+    retriever_resources: list[RetrieverResource] = Field(default_factory=list)
     created_at: Int64 | None = None
     agent_thoughts: list[AgentThought]
     message_files: list[MessageFile]
@@ -68,6 +68,13 @@ class MessageListItem(ResponseModel):
     status: str
     error: str | None = None
     extra_contents: list[ExecutionExtraContentDomainModel]
+
+    @field_validator("retriever_resources", mode="before")
+    @classmethod
+    def _normalize_retriever_resources(cls, value: object) -> object:
+        # Usage-only Agent metadata has no retrieval key; legacy rows can also
+        # contain explicit null. Preserve all other values for normal validation.
+        return [] if value is None else value
 
     @computed_field
     def total_tokens(self) -> int:

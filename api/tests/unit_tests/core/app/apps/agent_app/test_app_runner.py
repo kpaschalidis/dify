@@ -66,6 +66,7 @@ from core.app.entities.queue_entities import (
 )
 from core.workflow.nodes.agent_v2.ask_human_resume import AskHumanResumeOutcome
 from core.workflow.nodes.agent_v2.dify_tools_builder import WorkflowAgentToolLayers
+from fields.message_fields import MessageListItem
 from graphon.model_runtime.entities.llm_entities import LLMResult, LLMUsage
 from graphon.model_runtime.errors.invoke import InvokeRateLimitError
 from models.agent_config_entities import AgentSoulConfig
@@ -1424,6 +1425,23 @@ def test_failed_run_persists_partial_usage(sqlite_session: Session) -> None:
     assert message.provider_response_latency == 0.4
     assert message.message_metadata is not None
     assert json.loads(message.message_metadata)["usage"]["total_tokens"] == 12
+    # Usage-only metadata legitimately has no retrieval key. The history
+    # response must still serialize the persisted message without rewriting it.
+    assert message.retriever_resources is None
+    item = MessageListItem(
+        id=message.id,
+        conversation_id=message.conversation_id,
+        inputs={},
+        query=message.query,
+        answer=message.answer,
+        retriever_resources=message.retriever_resources,
+        agent_thoughts=[],
+        message_files=[],
+        status=message.status,
+        extra_contents=[],
+    )
+    assert item.model_dump(mode="json")["retriever_resources"] == []
+    assert "retriever_resources" not in json.loads(message.message_metadata)
 
 
 def test_partial_usage_persistence_ignores_missing_message() -> None:
