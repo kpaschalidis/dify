@@ -386,6 +386,7 @@ class TestGenerateWorker:
         session_scope_config_version_id="s",
         files=(),
         file_upload_config=None,
+        inputs=None,
     ):
         generator._generate_worker(
             flask_app=mocker.MagicMock(),
@@ -399,6 +400,7 @@ class TestGenerateWorker:
                 query=query,
                 files=files,
                 file_upload_config=file_upload_config,
+                inputs=inputs or {},
             ),
             queue_manager=queue_manager,
             conversation_id="conv",
@@ -417,6 +419,15 @@ class TestGenerateWorker:
         assert runner.run.call_args.kwargs["home_snapshot_id"] == "home-1"
         assert "home_snapshot_ref" not in runner.run.call_args.kwargs
         queue_manager.publish_error.assert_not_called()
+
+    def test_worker_passes_prepared_inputs_without_putting_them_in_query(self, generator, mocker):
+        runner, _ = self._wire(generator, mocker)
+        inputs = {"harness_run_token": "run.synthetic-credential"}
+        self._call(generator, mocker, mocker.MagicMock(), inputs=inputs)
+        kwargs = runner.run.call_args.kwargs
+        assert kwargs["inputs"] == inputs
+        assert kwargs["inputs"] is not inputs
+        assert kwargs["query"] == "query"
 
     def test_worker_passes_session_scope_config_version_to_runner(self, generator, mocker: MockerFixture):
         runner, _ = self._wire(generator, mocker)

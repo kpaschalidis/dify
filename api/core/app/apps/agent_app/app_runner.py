@@ -653,6 +653,7 @@ class AgentAppRunner:
         image_detail_config: ImagePromptMessageContent.DETAIL | None = None,
         session_scope_snapshot_id: str | None | _DefaultSessionScopeSnapshotId = _DEFAULT_SESSION_SCOPE_SNAPSHOT_ID,
         build_draft_id: str | None = None,
+        inputs: dict[str, Any] | None = None,
     ) -> None:
         scope = self._build_session_scope(
             dify_context=dify_context,
@@ -677,6 +678,7 @@ class AgentAppRunner:
             backend_binding_ref=stored.backend_binding_ref,
             conversation_id=conversation_id,
             query=query,
+            inputs=inputs,
             files=tuple(files or ()),
             image_detail_config=image_detail_config,
             idempotency_key=message_id,
@@ -811,6 +813,7 @@ class AgentAppRunner:
         idempotency_key: str,
         stored: StoredAgentAppSession,
         message_id: str | None,
+        inputs: dict[str, Any] | None = None,
     ) -> AgentAppRuntimeRequest:
         session_snapshot = stored.session_snapshot
         deferred_tool_results = (
@@ -827,6 +830,7 @@ class AgentAppRunner:
                 agent_soul=agent_soul,
                 conversation_id=conversation_id,
                 user_query=query,
+                inputs=dict(inputs or {}),
                 files=files,
                 image_detail_config=image_detail_config,
                 idempotency_key=idempotency_key,

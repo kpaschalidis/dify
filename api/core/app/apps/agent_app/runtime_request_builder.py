@@ -10,7 +10,8 @@ used by workflow runs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 from agenton.compositor import CompositorSessionSnapshot
@@ -37,6 +38,7 @@ from configs import dify_config
 from core.app.entities.app_invoke_entities import DifyRunContext, InvokeFrom
 from core.app.llm.model_access import resolve_model_context_window, resolve_model_supports_vision
 from core.plugin.provider_identity import normalize_plugin_daemon_provider_identity
+from core.prompt.utils.prompt_template_parser import PromptTemplateParser
 from core.workflow.file_reference import build_file_reference, is_canonical_file_reference
 from core.workflow.nodes.agent_v2.dify_tools_builder import (
     WorkflowAgentDifyToolLayersBuilder,
@@ -84,6 +86,7 @@ class AgentAppRuntimeBuildContext:
     idempotency_key: str
     binding_id: str
     backend_binding_ref: str
+    inputs: dict[str, Any] = field(default_factory=dict)
     files: tuple[File, ...] = ()
     image_detail_config: ImagePromptMessageContent.DETAIL | None = None
     agent_config_version_kind: Literal["snapshot", "draft", "build_draft"] = "snapshot"
@@ -154,6 +157,11 @@ class AgentAppRuntimeRequestBuilder:
             agent_soul,
             runtime_config_skills=runtime_config_skills,
         )
+        soul_prompt, log_soul_prompt = _render_app_input_prompt(
+            expand_prompt_mentions(agent_soul.prompt.system_prompt, soul_prompt_resolver).strip(),
+            agent_soul=agent_soul,
+            inputs=context.inputs,
+        )
         knowledge_config = build_knowledge_layer_config(agent_soul)
         context_window_tokens = resolve_model_context_window(
             run_context=context.dify_context,
@@ -197,8 +205,7 @@ class AgentAppRuntimeRequestBuilder:
                 backend_binding_ref=context.backend_binding_ref,
                 # ENG-616: expand slash-menu mention tokens to canonical names so
                 # no frontend-internal {{#…#}} marker ever reaches the model.
-                agent_soul_prompt=expand_prompt_mentions(agent_soul.prompt.system_prompt, soul_prompt_resolver).strip()
-                or None,
+                agent_soul_prompt=soul_prompt or None,
                 agent_config_version_kind=context.agent_config_version_kind,
                 user_prompt=context.user_query,
                 user_files=user_files,
@@ -217,6 +224,12 @@ class AgentAppRuntimeRequestBuilder:
         )
         self._validate_session_snapshot_layers(request)
         redacted = cast(dict[str, Any], redact_for_agent_backend_log(request))
+        if agent_soul.app_variables:
+            # Runtime input values may be scoped credentials. Log the template
+            # with redacted substitutions, never the expanded values.
+            for layer in redacted.get("composition", {}).get("layers", []):
+                if layer.get("name") == "agent_soul_prompt":
+                    layer["config"]["prefix"] = log_soul_prompt
         return AgentAppRuntimeRequest(
             request=request,
             redacted_request=redacted,
@@ -292,6 +305,22 @@ class AgentAppRuntimeRequestBuilder:
             "agent_id": context.agent_id,
             "agent_config_snapshot_id": context.agent_config_snapshot_id,
         }
+
+
+def _render_app_input_prompt(template: str, *, agent_soul: AgentSoulConfig, inputs: dict[str, Any]) -> tuple[str, str]:
+    if not agent_soul.app_variables:
+        return template, template
+    values: dict[str, str] = {}
+    for variable in agent_soul.app_variables:
+        value = inputs.get(variable.name, variable.default)
+        values[variable.name] = (
+            "" if value is None else value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        )
+    parser = PromptTemplateParser(template=template)
+    return (
+        parser.format(values, remove_template_variables=False),
+        parser.format({name: "[REDACTED]" if value else "" for name, value in values.items()}),
+    )
 
 
 def _build_user_image(

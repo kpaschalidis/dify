@@ -474,6 +474,7 @@ class AgentAppGenerator(MessageBasedAppGenerator):
                     agent_config_snapshot_id=application_generate_entity.agent_config_snapshot_id,
                     agent_config_version_kind=application_generate_entity.agent_config_version_kind,
                     agent_soul=agent_soul,
+                    inputs=dict(application_generate_entity.inputs),
                     home_snapshot_id=config_version.home_snapshot_id,
                     conversation_id=conversation.id,
                     query=query,
