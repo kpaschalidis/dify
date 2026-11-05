@@ -67,6 +67,7 @@ from dify_agent.runtime.agent_factory import create_agent, normalize_user_input
 from dify_agent.runtime.agenton_validation import is_agenton_enter_validation_runtime_error
 from dify_agent.runtime.compositor_factory import build_pydantic_ai_compositor, create_default_layer_providers
 from dify_agent.runtime.compaction import build_compaction_capability
+from dify_agent.runtime.credential_history import CredentialHistoryRedaction
 from dify_agent.runtime_backend import BindingLostError
 from dify_agent.runtime.event_coalescer import (
     DEFAULT_TEXT_DELTA_FLUSH_INTERVAL_SECONDS,
@@ -359,7 +360,13 @@ class AgentRunRunner:
                 try:
                     output_contract = resolve_run_output_contract(run)
                     history_layer = get_history_layer(run)
-                    message_history = history_layer.message_history if history_layer is not None else None
+                    history_redaction = CredentialHistoryRedaction()
+                    message_history = (
+                        history_redaction.redact(history_layer.message_history) if history_layer is not None else None
+                    )
+                    if history_layer is not None:
+                        # An early failure can checkpoint before capture binds any messages.
+                        replace_run_history(history_layer, message_history or [], redaction=history_redaction)
                     ask_human_layer = get_ask_human_layer(run)
                     llm_layer = run.get_layer(DIFY_AGENT_MODEL_LAYER_ID, DifyPluginLLMLayer)
                     compaction = build_compaction_capability(
@@ -399,12 +406,12 @@ class AgentRunRunner:
                                     deferred_tool_results=deferred_tool_results,
                                     event_stream_handler=handle_events,
                                     instructions=run.prompts or None,
-                                    capabilities=[compaction] if compaction is not None else None,
+                                    capabilities=[history_redaction, *([compaction] if compaction is not None else [])],
                                     usage_limits=UsageLimits(request_limit=_MAX_AGENT_STEPS_PER_RUN),
                                 )
                         finally:
                             if captured_messages:
-                                replace_run_history(history_layer, captured_messages)
+                                replace_run_history(history_layer, captured_messages, redaction=history_redaction)
                 except TimeoutError as exc:
                     if not run_timeout.expired():
                         raise
