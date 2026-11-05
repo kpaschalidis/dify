@@ -105,7 +105,7 @@ Dify Agent handles memory conservatively:
 8. Failed and cancelled runs keep their terminal status; their snapshot is a
    checkpoint, not a successful continuation of the interrupted run.
 
-Runtime callback credentials (`run_token` and `harness_run_token`) are redacted
+Runtime callback credentials (`runToken`, `run_token` and `harness_run_token`) are redacted
 from tool-call history before compaction and model continuation, including when
 the context window is unknown and compaction is disabled. Values discovered in
 those explicit credential fields are also removed from echoed text and tool
