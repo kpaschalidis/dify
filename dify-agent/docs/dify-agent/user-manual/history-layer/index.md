@@ -105,6 +105,21 @@ Dify Agent handles memory conservatively:
 8. Failed and cancelled runs keep their terminal status; their snapshot is a
    checkpoint, not a successful continuation of the interrupted run.
 
+Runtime callback credentials (`run_token` and `harness_run_token`) are redacted
+from tool-call history before compaction and model continuation, including when
+the context window is unknown and compaction is disabled. Values discovered in
+those explicit credential fields are also removed from echoed text and tool
+results. Actual authorized tool execution receives the original arguments;
+history copies preserve call/result IDs and noncredential arguments. Invalid
+partial JSON arguments are replaced in history rather than retaining an
+unparseable credential. Current transient instructions remain available to live
+execution and are removed when history is persisted.
+
+Restored history and terminal captures are both sanitized, including failures
+before the first captured model request. This is scoped runtime-credential
+handling, not a detector for arbitrary secrets in documents, user messages or
+preexisting summaries whose original credential fields are no longer available.
+
 ## Persist snapshots outside the client process
 
 Session snapshots are Pydantic models and can be saved as JSON:
