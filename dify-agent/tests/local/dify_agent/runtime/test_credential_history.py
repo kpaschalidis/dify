@@ -29,7 +29,7 @@ def test_invalid_argument_shapes_cannot_persist_bare_credentials(args):
     assert cleaned[0].parts[0].tool_call_id == "invalid"
 
 
-@pytest.mark.parametrize("field", ["run_token", "harness_run_token"])
+@pytest.mark.parametrize("field", ["runToken", "run_token", "harness_run_token"])
 @pytest.mark.parametrize("encoded", [False, True])
 def test_restored_credentials_and_echoes_are_removed_without_mutating_original_calls(field, encoded):
     args = {"nested": [{field: SECRET}], "taskId": "keep-task", "token": "business-reference"}
@@ -93,13 +93,13 @@ def test_authorized_invocation_uses_original_credential_but_next_model_request_a
     invoked = []
     inspected = []
 
-    def callback(run_token: str, task_id: str) -> str:
-        invoked.append((run_token, task_id))
-        return f"Read succeeded for {run_token}"
+    def callback(runToken: str, task_id: str) -> str:
+        invoked.append((runToken, task_id))
+        return f"Read succeeded for {runToken}"
 
     def respond(messages, info):
         if not invoked:
-            return ModelResponse(parts=[ToolCallPart("callback", {"run_token": SECRET, "task_id": "task-1"})])
+            return ModelResponse(parts=[ToolCallPart("callback", {"runToken": SECRET, "task_id": "task-1"})])
         inspected.extend(messages)
         return ModelResponse(parts=[TextPart("Done")])
 

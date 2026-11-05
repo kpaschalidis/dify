@@ -29,7 +29,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import ModelRequestContext
 
-_CREDENTIAL_FIELDS = frozenset({"run_token", "harness_run_token"})
+_CREDENTIAL_FIELDS = frozenset({"runToken", "run_token", "harness_run_token"})
 _REDACTED = "[REDACTED]"
 _Part = TypeVar("_Part", bound=ModelRequestPart | ModelResponsePart)
 
