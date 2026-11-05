@@ -711,8 +711,11 @@ def test_runner_passes_context_compaction(monkeypatch: pytest.MonkeyPatch) -> No
     class FakeAgent:
         async def run(self, *_args: object, **kwargs: object) -> FakeAgentRunResult:
             capabilities = cast(list[object], kwargs["capabilities"])
-            assert len(capabilities) == 1
-            capability = capabilities[0]
+            from dify_agent.runtime.credential_history import CredentialHistoryRedaction
+
+            assert len(capabilities) == 2
+            assert isinstance(capabilities[0], CredentialHistoryRedaction)
+            capability = capabilities[1]
             assert isinstance(capability, TieredCompaction)
             assert capability.target_tokens == 7_000
             return FakeAgentRunResult("done")
@@ -2322,13 +2325,24 @@ def test_runner_failure_with_history_layer_captures_interrupted_history(
     assert _history_messages_from_snapshot(request.session_snapshot) == stored_history
 
 
+@pytest.mark.parametrize("with_credential", [False, True])
 def test_runner_preserves_history_when_agent_fails_before_capture_is_bound(
     monkeypatch: pytest.MonkeyPatch,
+    with_credential: bool,
 ) -> None:
     stored_history = [
         ModelRequest(parts=[UserPromptPart(content="old user")]),
         ModelResponse(parts=[TextPart(content="old assistant")]),
     ]
+    if with_credential:
+        stored_history.extend(
+            [
+                ModelResponse(
+                    parts=[ToolCallPart("read_context", {"run_token": "private-old-credential"}, "old-call")]
+                ),
+                ModelRequest(parts=[ToolReturnPart("read_context", "Read failed", "old-call")]),
+            ]
+        )
 
     def fake_get_model(_self: DifyPluginLLMLayer, *, http_client: httpx.AsyncClient, agent_run_id: str):
         assert http_client.is_closed is False
@@ -2360,7 +2374,14 @@ def test_runner_preserves_history_when_agent_fails_before_capture_is_bound(
     terminal = sink.events["run-history-empty-capture"][-1]
     assert isinstance(terminal, RunFailedEvent)
     assert terminal.data.session_snapshot is not None
-    assert _history_messages_from_snapshot(terminal.data.session_snapshot) == stored_history
+    saved_history = _history_messages_from_snapshot(terminal.data.session_snapshot)
+    if with_credential:
+        assert saved_history[:2] == stored_history[:2]
+        assert saved_history[2].parts[0].args == {"run_token": "[REDACTED]"}
+        assert saved_history[2].parts[0].tool_call_id == "old-call"
+        assert stored_history[2].parts[0].args == {"run_token": "private-old-credential"}
+    else:
+        assert saved_history == stored_history
 
 
 def test_runner_persists_usage_limit_failure_type_in_event_and_status(

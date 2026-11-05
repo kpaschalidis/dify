@@ -19,6 +19,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest
 from agenton_collections.layers.pydantic_ai import PYDANTIC_AI_HISTORY_LAYER_TYPE_ID, PydanticAIHistoryLayer
 from dify_agent.protocol import DIFY_AGENT_HISTORY_LAYER_ID
 from dify_agent.protocol.schemas import RunComposition
+from dify_agent.runtime.credential_history import CredentialHistoryRedaction
 
 
 class SupportsHistoryLayerLookup(Protocol):
@@ -68,12 +69,15 @@ def get_history_layer(run: SupportsHistoryLayerLookup) -> PydanticAIHistoryLayer
 def replace_run_history(
     history_layer: PydanticAIHistoryLayer | None,
     messages: Sequence[ModelMessage],
+    *,
+    redaction: CredentialHistoryRedaction | None = None,
 ) -> None:
-    """Persist a run's captured history without transient instructions."""
+    """Persist captured history without credentials or transient instructions."""
     if history_layer is None:
         return
     persistent_messages = [
-        replace(message, instructions=None) if isinstance(message, ModelRequest) else message for message in messages
+        replace(message, instructions=None) if isinstance(message, ModelRequest) else message
+        for message in (redaction or CredentialHistoryRedaction()).redact(messages)
     ]
     history_layer.replace_messages(persistent_messages)
 

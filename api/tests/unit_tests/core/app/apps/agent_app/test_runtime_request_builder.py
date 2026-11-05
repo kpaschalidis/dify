@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -837,3 +839,59 @@ class TestAgentAppConfigLayer:
             "mention_target_missing",
             "mention_target_missing",
         ]
+
+
+class TestDeclaredAppInputs:
+    def _build(self, inputs, *, variables=None, template="Run token: {{harness_run_token}}"):
+        soul = _soul_with_model()
+        soul.prompt.system_prompt = template
+        from models.agent_config_entities import AppVariableConfig
+
+        soul.app_variables = [
+            AppVariableConfig.model_validate(v)
+            for v in (variables if variables is not None else [{"name": "harness_run_token", "type": "string"}])
+        ]
+        original = soul.model_dump(mode="json")
+        builder = AgentAppRuntimeRequestBuilder(dify_tools_builder=_NoToolsBuilder())
+        result = builder.build(replace(_ctx(soul), inputs=inputs))
+        assert soul.model_dump(mode="json") == original
+        return result
+
+    @pytest.mark.parametrize("value", ["run-a.synthetic-key-a", "run-b.synthetic-key-b"])
+    def test_declared_input_reaches_model_but_not_redacted_diagnostics(self, value):
+        result = self._build({"harness_run_token": value})
+        prompt = next(layer for layer in result.request.composition.layers if layer.name == "agent_soul_prompt")
+        assert prompt.config.prefix == f"Run token: {value}"
+        assert value not in json.dumps(result.redacted_request)
+        assert "[REDACTED]" in json.dumps(result.redacted_request)
+        assert result.request.composition.layers[1].config.text == "hello"
+
+    def test_missing_optional_input_is_empty(self):
+        result = self._build({})
+        prompt = next(layer for layer in result.request.composition.layers if layer.name == "agent_soul_prompt")
+        assert prompt.config.prefix == "Run token: "
+        assert "harness_run_token" not in prompt.config.prefix
+
+    def test_unknown_inputs_are_not_interpolated(self):
+        result = self._build({"unknown": "not-authorised"}, template="Known {{harness_run_token}} unknown {{unknown}}")
+        prompt = next(layer for layer in result.request.composition.layers if layer.name == "agent_soul_prompt")
+        assert prompt.config.prefix == "Known  unknown {{unknown}}"
+        assert "not-authorised" not in result.request.model_dump_json()
+
+    @pytest.mark.parametrize(("value", "expected"), [(False, "false"), (0, "0"), (["x"], '["x"]')])
+    def test_typed_defaults_and_values_use_json(self, value, expected):
+        result = self._build({}, variables=[{"name": "harness_run_token", "type": "string", "default": value}])
+        prompt = next(layer for layer in result.request.composition.layers if layer.name == "agent_soul_prompt")
+        assert prompt.config.prefix == f"Run token: {expected}"
+
+    def test_input_templates_and_mentions_are_not_reexpanded(self):
+        value = "{{other}} [§skill:ghost:Ghost§]"
+        result = self._build({"harness_run_token": value, "other": "must-not-appear"})
+        prompt = next(layer for layer in result.request.composition.layers if layer.name == "agent_soul_prompt")
+        assert prompt.config.prefix == f"Run token: {value}"
+        assert "must-not-appear" not in result.request.model_dump_json()
+
+    def test_unconfigured_chat_keeps_its_literal_template(self):
+        result = self._build({"harness_run_token": "ignored"}, variables=[], template="Literal {{example}}")
+        prompt = next(layer for layer in result.request.composition.layers if layer.name == "agent_soul_prompt")
+        assert prompt.config.prefix == "Literal {{example}}"

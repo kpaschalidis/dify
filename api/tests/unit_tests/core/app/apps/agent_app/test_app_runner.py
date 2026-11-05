@@ -1698,3 +1698,31 @@ def test_submitted_form_resumes_turn_with_deferred_tool_results(monkeypatch: pyt
     # mismatch). A resume therefore re-sends a non-blank query, never blank.
     layer_names = [layer.name for layer in client.request.composition.layers]
     assert "agent_app_user_prompt" in layer_names
+
+
+def test_runtime_builder_receives_an_isolated_copy_of_run_inputs():
+    from types import SimpleNamespace
+
+    runner = object.__new__(AgentAppRunner)
+    runner._request_builder = SimpleNamespace(build=lambda context: context)
+    inputs = {"harness_run_token": "run.synthetic-credential"}
+    context = runner._build_runtime(
+        dify_context=_dify_ctx(),
+        agent_id="agent-1",
+        agent_config_snapshot_id="snapshot-1",
+        agent_config_version_kind="snapshot",
+        agent_soul=_soul(),
+        binding_id="binding-1",
+        backend_binding_ref="backend-1",
+        conversation_id="conversation-1",
+        query="hello",
+        files=(),
+        image_detail_config=None,
+        idempotency_key="message-1",
+        stored=SimpleNamespace(session_snapshot=None),
+        message_id=None,
+        inputs=inputs,
+    )
+    assert context.inputs == inputs
+    assert context.inputs is not inputs
+    assert context.user_query == "hello"
