@@ -1045,3 +1045,46 @@ def test_dify_plugin_tools_layer_merges_blob_chunks_before_observation_conversio
                 assert "sequence=0" not in result
 
     asyncio.run(scenario())
+
+
+def test_shared_signature_keeps_invocation_credentials_and_schemas_isolated() -> None:
+    from dify_agent.layers.dify_plugin.tools_layer import _build_pydantic_ai_tool
+
+    calls = []
+
+    class Client:
+        async def invoke(self, **kwargs):
+            calls.append(kwargs)
+            return []
+
+    tools = []
+    for name in ("first", "second"):
+        config = DifyPluginToolConfig(
+            plugin_id="test",
+            provider="test",
+            tool_name=name,
+            credential_type="api-key",
+            credentials={"token": name},
+            parameters_json_schema={"type": "object", "properties": {name: {"type": "string"}}},
+        )
+        tools.append(
+            _build_pydantic_ai_tool(
+                client=Client(),
+                tool_config=config,
+                effective_parameters=[],
+                file_context=None,
+            )
+        )
+
+    async def exercise():
+        for tool in tools:
+            await tool.function_schema.function(None)
+        definitions = [await tool.prepare(None, tool.tool_def) for tool in tools]
+        assert "first" in definitions[0].parameters_json_schema["properties"]
+        assert "second" in definitions[1].parameters_json_schema["properties"]
+
+    asyncio.run(exercise())
+    assert [call["credentials"] for call in calls] == [{"token": "first"}, {"token": "second"}]
+    assert [call["tool_name"] for call in calls] == ["first", "second"]
+    assert tools[0].function_schema is not tools[1].function_schema
+    assert tools[0].function_schema.validator is tools[1].function_schema.validator

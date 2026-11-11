@@ -17,7 +17,8 @@ import json
 import mimetypes
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import cache
 from typing import ClassVar
 from urllib.parse import urlparse
 
@@ -248,6 +249,18 @@ def _validate_required_hidden_parameters(
         raise ValueError(f"Tool '{tool_config.tool_name}' requires non-LLM runtime_parameters for: {names}.")
 
 
+async def _plugin_tool_signature(_ctx: RunContext[object], **tool_arguments: object) -> str | ToolReturn:
+    """Describe the shared wrapper signature; actual calls use a request-owned closure."""
+    raise RuntimeError("Tool signature must not be invoked")
+
+
+@cache
+def _plugin_tool_function_schema():
+    # This contains no credentials or request state. Each tool receives its own
+    # schema record and invocation closure; only signature analysis is shared.
+    return Tool(_plugin_tool_signature, takes_ctx=True).function_schema
+
+
 def _build_pydantic_ai_tool(
     *,
     client: DifyPluginDaemonToolClient,
@@ -303,6 +316,9 @@ def _build_pydantic_ai_tool(
         name=tool_name,
         description=tool_description,
         prepare=prepare_tool_definition,
+        function_schema=replace(
+            _plugin_tool_function_schema(), function=invoke_tool, name=tool_name, description=tool_description
+        ),
     )
 
 
